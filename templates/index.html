@@ -7,9 +7,22 @@ html, body { height:100%; margin:0; padding:0; background:#121212; color:#eee; f
 #map { height:100%; width:100%; border-left:2px solid #333; }
 
 /* Sidebar-Highlight-Effekt */
-.cache-active { background: #003b46 !important; border-left: 4px solid #00ffff !important; box-shadow: 0 0 10px #00ffffaa; animation: flash 0.5s ease-out; }
-@keyframes flash { 0% { box-shadow: 0 0 20px #00ffff; } 100% { box-shadow: none; } }
-.marker-highlight { filter: drop-shadow(0 0 10px #00ffff); }
+.cache-active {
+    background: #003b46 !important;
+    border-left: 4px solid #00ffff !important;
+    box-shadow: 0 0 10px #00ffffaa;
+    animation: flash 0.5s ease-out;
+}
+
+@keyframes flash {
+    0% { box-shadow: 0 0 20px #00ffff; }
+    100% { box-shadow: none; }
+}
+
+/* Marker-Highlight (Puls) */
+.marker-highlight {
+    filter: drop-shadow(0 0 10px #00ffff);
+}
 
 /* Sidebar */
 .col-3 { background:#1e1e1e; color:#eee; }
@@ -23,14 +36,31 @@ html, body { height:100%; margin:0; padding:0; background:#121212; color:#eee; f
 #cache-list { background:#1e1e1e; border:1px solid #333; overflow-y:auto; flex-grow:1; }
 
 /* Modal */
-#cache-modal { display:none; width:420px; z-index:1000; background:#222; border:1px solid #0ff; color:#eee; box-shadow:0 0 20px #0ff; border-radius:8px; }
+#cache-modal {
+  display:none;
+  width:420px;
+  z-index:1000;
+  background:#222;
+  border:1px solid #0ff;
+  color:#eee;
+  box-shadow:0 0 20px #0ff;
+  border-radius:8px;
+}
 #cache-modal h5 { color:#0ff; }
 #cache-modal input, #cache-modal textarea { background:#333; color:#eee; border:1px solid #0ff; }
 #cache-modal input::placeholder, #cache-modal textarea::placeholder { color:#888; }
 #cache-modal .btn { font-weight:bold; }
 
 /* Popup Kachel */
-.popup-card { background:#111; border:2px solid #0ff; padding:10px; width:240px; color:#eee; border-radius:8px; box-shadow:0 0 15px #00ffff88; }
+.popup-card {
+  background:#111;
+  border:2px solid #0ff;
+  padding:10px;
+  width:240px;
+  color:#eee;
+  border-radius:8px;
+  box-shadow:0 0 15px #00ffff88;
+}
 .popup-card h4 { margin:0 0 5px 0; color:#0ff; }
 .popup-card img { max-width:100%; border:1px solid #0ff; margin-top:8px; border-radius:4px; }
 
@@ -43,11 +73,13 @@ html, body { height:100%; margin:0; padding:0; background:#121212; color:#eee; f
 <div class="row vh-100 m-0">
   <div class="col-3 bg-dark p-3 border-end d-flex flex-column">
     <div class="sidebar-title">Geocaching</div>
+
     <h5>Filter</h5>
     <input id="filter-name" class="form-control mb-2" placeholder="Name">
     <input id="filter-q" class="form-control mb-2" placeholder="Suche Hinweis/Bemerkung/Ort">
     <input id="date-filter" type="date" class="form-control mb-2" placeholder="Datum">
     <button id="apply-filters" class="btn btn-primary w-100 mb-3">Anwenden</button>
+
     <h6>Gefundene Caches</h6>
     <ul id="cache-list" class="list-group overflow-auto flex-grow-1"></ul>
   </div>
@@ -80,59 +112,167 @@ html, body { height:100%; margin:0; padding:0; background:#121212; color:#eee; f
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 <script>
 let map = L.map('map').setView([0,0],2);
-const offline = L.tileLayer('/tiles/{z}/{x}/{y}.png', {maxZoom:19, attribution:'&copy; OpenStreetMap (offline)'}).addTo(map);
-L.control.layers({"OSM (offline)": offline}).addTo(map);
+
+// Layer
+const osm = L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',{
+    maxZoom:19, attribution:'&copy; OpenStreetMap'
+});
+const satellite = L.tileLayer(
+    'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
+    { attribution: 'Tiles &copy; Esri' }
+);
+const offline = L.tileLayer('/tiles/{z}/{x}/{y}.png', {
+    maxZoom: 19,
+    attribution: '&copy; OpenStreetMap (offline)'
+});
+
+offline.addTo(map);
+L.control.layers({
+    "OSM (online)": osm,
+    "Satellit (online)": satellite,
+    "OSM (offline)": offline
+}).addTo(map);
 
 let currentMarker = null;
 let allCaches = [];
 
-function showModal(lat,lon){document.getElementById('form-lat').value=lat;document.getElementById('form-lon').value=lon;document.getElementById('cache-modal').style.display='block';}
-function hideModal(){document.getElementById('cache-form').reset();document.getElementById('cache-modal').style.display='none';if(currentMarker){ map.removeLayer(currentMarker); currentMarker=null; }}
+/* ---------- Modal ---------- */
+function showModal(lat, lon){
+    document.getElementById('form-lat').value = lat;
+    document.getElementById('form-lon').value = lon;
+    document.getElementById('cache-modal').style.display = 'block';
+}
+function hideModal(){
+    document.getElementById('cache-form').reset();
+    document.getElementById('cache-modal').style.display = 'none';
+    if(currentMarker){
+        map.removeLayer(currentMarker);
+        currentMarker = null;
+    }
+}
 
-map.on('click', function(e){ const {lat,lng}=e.latlng; if(currentMarker) map.removeLayer(currentMarker); currentMarker=L.marker([lat,lng]).addTo(map); showModal(lat,lng); });
-
-document.getElementById('save-cache').addEventListener('click', async()=>{
-    const form=document.getElementById('cache-form'); const data=new FormData(form);
-    try{ const res=await fetch('/api/caches',{method:'POST',body:data}); if(!res.ok) throw new Error('Fehler beim Speichern'); hideModal(); loadCaches(); } 
-    catch(err){ alert("Server nicht erreichbar, Cache lokal gespeichert."); let backup = JSON.parse(localStorage.getItem("cache-backup")||"[]"); backup.push(Object.fromEntries(data)); localStorage.setItem("cache-backup",JSON.stringify(backup)); hideModal(); loadCaches(); }
+/* ---------- Map Click ---------- */
+map.on('click', e => {
+    const {lat, lng} = e.latlng;
+    if(currentMarker) map.removeLayer(currentMarker);
+    currentMarker = L.marker([lat, lng]).addTo(map);
+    showModal(lat, lng);
 });
-document.getElementById('cancel-cache').addEventListener('click',hideModal);
 
-document.getElementById('apply-filters').addEventListener('click',()=>{
+/* ---------- SAVE CACHE (MIT OK-BESTÄTIGUNG) ---------- */
+document.getElementById('save-cache').addEventListener('click', async () => {
+
+    const ok = confirm("Möchtest du diesen Cache wirklich speichern?");
+    if (!ok) return;
+
+    const form = document.getElementById('cache-form');
+    const data = new FormData(form);
+
+    try {
+        const res = await fetch('/api/caches', {
+            method: 'POST',
+            body: data
+        });
+        if (!res.ok) throw new Error("Server-Fehler");
+
+        hideModal();
+        loadCaches();
+
+    } catch (err) {
+        alert("Server nicht erreichbar – Cache wird lokal gespeichert.");
+
+        let backup = JSON.parse(localStorage.getItem("cache-backup") || "[]");
+        backup.push(Object.fromEntries(data));
+        localStorage.setItem("cache-backup", JSON.stringify(backup));
+
+        hideModal();
+        loadCaches();
+    }
+});
+
+document.getElementById('cancel-cache').addEventListener('click', hideModal);
+
+/* ---------- Filter ---------- */
+document.getElementById('apply-filters').addEventListener('click', () => {
     const nameF = document.getElementById('filter-name').value.toLowerCase();
     const qF = document.getElementById('filter-q').value.toLowerCase();
     const dateF = document.getElementById('date-filter').value;
-    let filtered = allCaches.filter(c=>{
-        let match=true;
-        if(nameF && !c.name.toLowerCase().includes(nameF)) match=false;
-        if(qF && !((c.hint && c.hint.toLowerCase().includes(qF)) || (c.remark && c.remark.toLowerCase().includes(qF)) || (c.location && c.location.toLowerCase().includes(qF)))) match=false;
-        if(dateF && c.found_date && c.found_date!=dateF) match=false;
-        return match;
+
+    let filtered = allCaches.filter(c => {
+        if(nameF && !c.name.toLowerCase().includes(nameF)) return false;
+        if(qF && !(
+            (c.hint && c.hint.toLowerCase().includes(qF)) ||
+            (c.remark && c.remark.toLowerCase().includes(qF)) ||
+            (c.location && c.location.toLowerCase().includes(qF))
+        )) return false;
+        if(dateF && c.found_date && c.found_date !== dateF) return false;
+        return true;
     });
+
     displayCaches(filtered);
 });
 
+/* ---------- Load Caches ---------- */
 async function loadCaches(){
-    try{ const res = await fetch('/api/caches'); if(!res.ok) throw new Error("Server-Fehler"); allCaches = await res.json(); displayCaches(allCaches); }
-    catch(e){ console.error("API nicht erreichbar", e); alert("Cache-Server momentan nicht erreichbar! Zeige lokale Backups."); let backup = JSON.parse(localStorage.getItem("cache-backup")||"[]"); allCaches = backup; displayCaches(allCaches); setTimeout(loadCaches,5000); }
+    try {
+        const res = await fetch('/api/caches');
+        if(!res.ok) throw new Error("API Fehler");
+        allCaches = await res.json();
+        displayCaches(allCaches);
+    } catch(e) {
+        alert("Server nicht erreichbar – lokale Backups werden angezeigt.");
+        allCaches = JSON.parse(localStorage.getItem("cache-backup") || "[]");
+        displayCaches(allCaches);
+        setTimeout(loadCaches, 5000);
+    }
 }
 
+/* ---------- Display ---------- */
 function displayCaches(caches){
-    map.eachLayer(l=>{if(l instanceof L.Marker) map.removeLayer(l);});
-    const list=document.getElementById('cache-list'); list.innerHTML='';
-    caches.forEach(c=>{
-        if(c.lat && c.lon){
-            const lat=parseFloat(c.lat), lon=parseFloat(c.lon);
-            let marker=L.marker([lat,lon]).addTo(map);
-            let popup=`<div class="popup-card"><h4>📍 ${c.name}</h4>${c.location?`<div><b>Ort:</b> ${c.location}</div>`:''}${c.found_date?`<div>📅 <b>Datum:</b> ${c.found_date}</div>`:''}${c.hint?`<div style="color:#0f0;">💬 <b>Hinweis:</b> ${c.hint}</div>`:''}${c.remark?`<div style="color:#ff0;">📝 <b>Bemerkung:</b> ${c.remark}</div>`:''}${c.image?`<img src="${c.image}" class="popup-image" onerror="this.src='/static/no-image.png'"/>`:''}</div>`;
-            marker.bindPopup(popup);
-            const li=document.createElement('li'); li.className='list-group-item bg-dark text-light'; li.textContent=c.name;
-            li.addEventListener('click',()=>{ document.querySelectorAll('#cache-list .list-group-item').forEach(el=>el.classList.remove('cache-active')); li.classList.add('cache-active'); let icon=marker._icon; if(icon){ icon.classList.add("marker-highlight"); setTimeout(()=>icon.classList.remove("marker-highlight"),800); } map.setView([lat,lon],10,{animate:true,duration:0.8}); marker.openPopup(); });
-            list.appendChild(li);
-        }
+    map.eachLayer(l => { if(l instanceof L.Marker) map.removeLayer(l); });
+
+    const list = document.getElementById('cache-list');
+    list.innerHTML = '';
+
+    caches.forEach(c => {
+        if(!c.lat || !c.lon) return;
+
+        const lat = parseFloat(c.lat);
+        const lon = parseFloat(c.lon);
+        const marker = L.marker([lat, lon]).addTo(map);
+
+        marker.bindPopup(`
+        <div class="popup-card">
+            <h4>📍 ${c.name}</h4>
+            ${c.location ? `<div><b>Ort:</b> ${c.location}</div>` : ''}
+            ${c.found_date ? `<div>📅 <b>Datum:</b> ${c.found_date}</div>` : ''}
+            ${c.hint ? `<div style="color:#0f0;">💬 ${c.hint}</div>` : ''}
+            ${c.remark ? `<div style="color:#ff0;">📝 ${c.remark}</div>` : ''}
+            ${c.image ? `<img src="${c.image}" onerror="this.src='/static/no-image.png'">` : ''}
+        </div>`);
+
+        const li = document.createElement('li');
+        li.className = 'list-group-item bg-dark text-light';
+        li.textContent = c.name;
+
+        li.onclick = () => {
+            document.querySelectorAll('#cache-list li')
+                .forEach(el => el.classList.remove('cache-active'));
+            li.classList.add('cache-active');
+
+            if(marker._icon){
+                marker._icon.classList.add('marker-highlight');
+                setTimeout(() => marker._icon.classList.remove('marker-highlight'), 800);
+            }
+
+            map.setView([lat, lon], 10, {animate:true});
+            marker.openPopup();
+        };
+
+        list.appendChild(li);
     });
 }
 
-window.onload=loadCaches;
+window.onload = loadCaches;
 </script>
 {% endblock %}
