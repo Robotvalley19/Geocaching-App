@@ -229,7 +229,14 @@ async function loadCaches(){
 
 /* ---------- Display ---------- */
 function displayCaches(caches){
-    map.eachLayer(l => { if(l instanceof L.Marker) map.removeLayer(l); });
+
+    // Anzahl anzeigen
+    document.getElementById("cache-count").textContent = caches.length;
+
+    // alte Marker entfernen
+    map.eachLayer(l => {
+        if (l instanceof L.Marker) map.removeLayer(l);
+    });
 
     const list = document.getElementById('cache-list');
     list.innerHTML = '';
@@ -239,6 +246,7 @@ function displayCaches(caches){
 
         const lat = parseFloat(c.lat);
         const lon = parseFloat(c.lon);
+
         const marker = L.marker([lat, lon]).addTo(map);
 
         marker.bindPopup(`
@@ -256,8 +264,10 @@ function displayCaches(caches){
         li.textContent = c.name;
 
         li.onclick = () => {
+
             document.querySelectorAll('#cache-list li')
                 .forEach(el => el.classList.remove('cache-active'));
+
             li.classList.add('cache-active');
 
             if(marker._icon){
